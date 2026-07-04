@@ -1,0 +1,60 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check packaging script syntax
+        run: bash -n build_deb.sh
+
+      - name: Set package version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-ci"
+          fi
+
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "REVISION=1" >> "${GITHUB_ENV}"
+
+      - name: Build deb package
+        run: ./build_deb.sh
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: adb-root_${{ env.VERSION }}-${{ env.REVISION }}_arm64
+          path: dist/*.deb
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.deb \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
